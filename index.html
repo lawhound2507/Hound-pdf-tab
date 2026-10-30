@@ -27,6 +27,7 @@
   <span class="grow"></span>
   <span class="seg" title="쪽 보기"><button class="tb" id="bOne">한 쪽</button><button class="tb" id="bTwo">두 쪽</button></span>
   <button class="tb" id="bCover" title="두 쪽 보기에서 첫 쪽(표지)만 따로">첫 쪽 따로</button>
+  <span class="seg" title="넘기기"><button class="tb" id="bPaged">쪽 넘김</button><button class="tb" id="bScroll">스크롤</button></span>
   <span class="pg"><input id="pgNo" inputmode="numeric" aria-label="쪽 번호"> / <span id="pgN">0</span></span>
   <button class="tb" id="bZoomOut" title="축소">−</button>
   <button class="tb" id="bZoomIn" title="확대">+</button>
@@ -41,6 +42,14 @@
     <div id="thumbs" class="spane" hidden></div>
   </aside>
   <section id="view" tabindex="0"><div id="pages"></div></section>
+  <section id="peek" hidden>
+    <div class="pk-bar"><b id="pkTitle" class="pk-title"></b><span id="pkPick" class="pk-pick"></span><span class="grow"></span>
+      <span id="pkNo" class="pg"></span>
+      <button class="tb" id="pkPrev" title="앞 쪽">앞 쪽</button><button class="tb" id="pkNext" title="다음 쪽">다음 쪽</button>
+      <button class="tb" id="pkOut" title="축소">−</button><button class="tb" id="pkIn" title="확대">+</button>
+      <button class="tb" id="pkGo" title="본문에서 이 쪽으로 가기">이 쪽으로</button><button class="tb solid" id="pkClose">닫기</button></div>
+    <div id="pkBody"><canvas id="pkCanvas"></canvas></div>
+  </section>
   <section id="home">
     <div class="homebox">
       <img src="icons/icon-192.png" alt="" width="72" height="72">
@@ -55,6 +64,7 @@
 <div id="update" hidden><span>새 판이 있어요</span><button id="bReload" class="tb solid">다시 열기</button></div>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf-lib.min.js"></script>
+<script src="evidence.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -57,3 +57,19 @@ body.drawing .page canvas.ink { cursor: crosshair; }
 #bCover[hidden] { display: none; }
 #update { position: fixed; right: 16px; bottom: 16px; z-index: 20; display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px 8px 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, .15); }
 #update[hidden] { display: none; }
+/* 쪽 넘김 보기 (2026-10-30 팀장님 "스크롤 말고 쪽보기도"): 지금 줄(한 쪽 또는 두 쪽)만 화면 가운데, 옆으로 밀거나 화면 양끝을 누르면 넘김.
+   확대했을 때만 화면 이동(밀기 = 이동) */
+body.paged #pages { min-height: 100%; justify-content: center; }
+body.paged:not(.zoomed) #view { overflow: hidden; }
+/* 증거번호 누르기 (2026-10-30 팀장님 "갑1호증 누르면 옆에 보여지는거"): 본문의 증거 표기에 옅은 밑줄, 누르면 옆(가로 = 오른쪽 반, 세로 = 아래 반)에 그 증거 쪽 */
+.evref { position: absolute; border-bottom: 2px solid rgba(31, 45, 82, .55); background: rgba(31, 45, 82, .07); pointer-events: none; border-radius: 2px; }
+#peek { position: absolute; z-index: 6; background: #fff; display: flex; flex-direction: column; box-shadow: -2px 0 10px rgba(0, 0, 0, .18); }
+#peek[hidden] { display: none; }
+@media (orientation: landscape) { #peek { top: 0; right: 0; bottom: 0; width: 50%; } }
+@media (orientation: portrait) { #peek { left: 0; right: 0; bottom: 0; height: 52%; box-shadow: 0 -2px 10px rgba(0, 0, 0, .18); } }
+.pk-bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.pk-title { color: var(--navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.pk-pick { display: flex; gap: 4px; flex-wrap: wrap; }
+.pk-pick .tb { padding: 6px 9px; min-height: 34px; }
+#pkBody { flex: 1; overflow: auto; background: #E9EBEF; display: flex; justify-content: center; align-items: flex-start; padding: 10px; -webkit-overflow-scrolling: touch; }
+#pkCanvas { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .15); }
