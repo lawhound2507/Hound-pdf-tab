@@ -2,7 +2,7 @@
 // pdf.js 3.11.174로 보기, pdf-lib로 저장(PDF 표준 Ink 주석 + 모양 그림을 함께 넣어 PC 하운드 PDF, 다른 PDF 프로그램에서도 같게 보임).
 // 사건 PDF는 이 탭 안에서만(바깥으로 보내지 않음, 기록 남기지 않음). 최근 파일은 이 탭 브라우저 저장소(IndexedDB)에만, [목록 비우기]로 지움.
 "use strict";
-const APP_VER = 7;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
+const APP_VER = 8;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
 pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 const $ = s => document.querySelector(s);
 const S = { pdf: null, bytes: null, name: "", handle: null, scale: 1, fit: true, pages: [], strokes: {}, undo: [],
@@ -57,7 +57,7 @@ async function openBytes(buf, name, handle, page = 1) {
   $("#home").hidden = true;
   await layout();
   scrollToPage(page, false);
-  buildOutline(); buildThumbs(); buildEvIndex(); $("#peek").hidden = true;
+  buildOutline(); buildThumbs(); S.evReady = buildEvIndex(); $("#peek").hidden = true;
   recentPut({ key: S.key, name, bytes: buf.slice(0), at: Date.now(), page });
 }
 
@@ -293,17 +293,20 @@ $("#view").addEventListener("pointerdown", () => { if (innerWidth <= 900) $("#si
 // 밑줄은 보이기만(누름은 펜 층에서 손가락, 마우스 짧게 누름으로 판단: S펜 그리기를 막지 않게).
 const CHAR_W = c => (c >= "가" && c <= "힣") || (c >= "一" && c <= "鿿") ? 1 : ".,:;'\"!|()[]·".includes(c) ? 0.3 : 0.55;
 async function buildEvIndex() {  // 증거 키 → 쪽 (책갈피 제목)
-  S.ev = new Map();
+  S.ev = new Map(); S.sideStart = 0; S.evTitle = new Map();  // evTitle: 쪽 → 증거 책갈피 제목(번호를 못 읽은 제목도 옆 창 이름으로)
   const walk = async items => { for (const it of items || []) {
+    if (/^나란히 보기/.test(it.title || "") && !S.sideStart) S.sideStart = await destPage(it.dest);  // 기록철 '나란히 보기 (가로 화면용)' 구간 시작
     const k = Evid.firstLabel(it.title || "", true);
     if (k && !S.ev.has(k)) { const n = await destPage(it.dest); if (n) S.ev.set(k, n); }
+    if (/^\s*[갑을]\s*(?:가|나|다)?\s*제?\s*\d+\s*호/.test(it.title || "")) { const n = await destPage(it.dest); if (n && !S.evTitle.has(n)) S.evTitle.set(n, (it.title.match(/^\s*[갑을][^\d]*\d+\s*호증(?:의\s*\d+)?/) || [it.title])[0].trim()); }
     await walk(it.items);
   } };
   try { await walk(await S.pdf.getOutline()); } catch (e) { /* 책갈피가 없으면 링크만 */ }
 }
 async function pageHots(pg) {  // 이 쪽의 누를 곳 [{r:[x0,y0,x1,y1](쪽 기본 크기 비율), key|page, label}]
   if (pg.hots) return pg.hots;
-  const v1 = pg.page.getViewport({ scale: 1 }), hots = [];
+  await S.evReady;
+  const v1 = pg.page.getViewport({ scale: 1 }), hots = [], refs = [];
   try {  // ① 이미 있는 링크
     for (const a of await pg.page.getAnnotations()) {
       if (a.subtype !== "Link" || !a.dest) continue;
@@ -333,12 +336,27 @@ async function pageHots(pg) {  // 이 쪽의 누를 곳 [{r:[x0,y0,x1,y1](쪽 �
         for (let i = a; i < Math.min(b, own.length); i++) { const o = own[i]; if (!o) continue; const c = cover.get(o[0]) || [o[1], o[1] + 1]; cover.set(o[0], [Math.min(c[0], o[1]), Math.max(c[1], o[1] + 1)]); }
         for (const [i, [x, y]] of cover) {
           const r = boxOf(i, x, y);
+          refs.push({ r, key });
           if (hots.some(h => h.link && r[0] < h.r[2] && r[2] > h.r[0] && r[1] < h.r[3] && r[3] > h.r[1])) continue;  // 링크와 겹치면 링크
           hots.push({ r, key, label: Evid.labelKey(key) });
         }
       }
     }
   } catch (e) { /* 글자 층이 없는 쪽(사진 등) */ }
+  // 기록철이 본문 줄 오른쪽 여백에 넣은 '두 칸' 표시: 맨 뒤 나란히 보기 짝 쪽 [이 쪽 사본 | 증거]으로 가는 링크라 그대로 열면 같은 쪽이 뜸
+  // (2026-10-30 팀장님 "오른쪽에 있는 걸 누르면 … 동일 페이지가 팝업으로 보여") → 같은 줄의 증거번호로 원래 증거 쪽을 엶, 못 찾으면 짝의 오른쪽 쪽
+  // 같은 줄의 기록철 본문 링크(파란 증거번호 → 증거 쪽)가 먼저, 없으면 같은 줄 글자의 증거번호, 그것도 못 찾으면 짝의 오른쪽 쪽(증거 사본)
+  const isSide = h => h.link && S.sideStart && h.page >= S.sideStart && pg.n < S.sideStart;
+  const onLine = (h, x) => { const cy = (h.r[1] + h.r[3]) / 2; return x.r[1] - 0.004 <= cy && cy <= x.r[3] + 0.004; };
+  for (const h of hots) {
+    if (!isSide(h)) continue;
+    const links = [...new Set(hots.filter(x => x.link && x.fallback === undefined && x.page && !isSide(x) && x.page !== pg.n && onLine(h, x)).sort((a, b) => a.r[0] - b.r[0]).map(x => x.page))];
+    const keys = [...new Set(refs.filter(x => onLine(h, x)).sort((a, b) => a.r[0] - b.r[0]).map(x => x.key))];
+    h.fallback = Math.min(h.page + 1, S.pages.length);
+    if (links.length) { delete h.page; h.pages = links; }
+    else if (keys.length) { delete h.page; h.keys = keys; h.label = keys.map(Evid.labelKey).join(", "); }
+    else h.page = h.fallback;
+  }
   pg.hots = hots;
   return hots;
 }
@@ -356,7 +374,9 @@ function hotAt(pg, e) {
   return (pg.hots || []).find(h => fx >= h.r[0] - pad && fx <= h.r[2] + pad && fy >= h.r[1] - pad && fy <= h.r[3] + pad);
 }
 function resolveHot(h) {  // → {pages:[{n, label}]} 가지번호가 여럿이면 고르기
-  if (h.page) return [{ n: h.page, label: S.ev && [...S.ev].find(([, n]) => n === h.page)?.[0] ? Evid.labelKey([...S.ev].find(([, n]) => n === h.page)[0]) : h.page + "쪽" }];
+  if (h.pages) return h.pages.flatMap(n => resolveHot({ page: n }));
+  if (h.keys) { const out = []; for (const key of h.keys) for (const it of resolveHot({ key })) if (!out.some(x => x.n === it.n)) out.push(it); return out.length ? out : resolveHot({ page: h.fallback }); }
+  if (h.page) return [{ n: h.page, label: S.ev && [...S.ev].find(([, n]) => n === h.page)?.[0] ? Evid.labelKey([...S.ev].find(([, n]) => n === h.page)[0]) : (S.evTitle && S.evTitle.get(h.page)) || h.page + "쪽" }];
   const ev = S.ev || new Map(), [side, num, sub] = Evid.parseKey(h.key);
   if (ev.has(h.key)) return [{ n: ev.get(h.key), label: Evid.labelKey(h.key) }];
   if (sub) { const base = Evid.makeKey(side, num); if (ev.has(base)) return [{ n: ev.get(base), label: Evid.labelKey(base) }]; }
