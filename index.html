@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1F2D52">
+<title>하운드 PDF</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header id="bar">
+  <button id="bSide" class="tb" title="책갈피, 쪽 목록">목록</button>
+  <button id="bOpen" class="tb">열기</button>
+  <span id="title" class="title">하운드 PDF</span>
+  <span class="grow"></span>
+  <span class="tools">
+    <button class="tb tool" data-tool="pen" title="펜">펜</button>
+    <button class="tb tool" data-tool="hl" title="형광펜">형광펜</button>
+    <button class="tb tool" data-tool="ul" title="밑줄(곧은 선)">밑줄</button>
+    <button class="tb tool" data-tool="erase" title="지우개(이번에 그린 것)">지우개</button>
+    <span class="colors" id="colors"></span>
+    <button class="tb" id="bUndo" title="되돌리기">되돌리기</button>
+  </span>
+  <span class="grow"></span>
+  <span class="pg"><input id="pgNo" inputmode="numeric" aria-label="쪽 번호"> / <span id="pgN">0</span></span>
+  <button class="tb" id="bZoomOut" title="축소">−</button>
+  <button class="tb" id="bZoomIn" title="확대">+</button>
+  <button class="tb" id="bFit" title="폭 맞춤">폭</button>
+  <button class="tb solid" id="bSave">저장</button>
+  <button class="tb" id="bSaveAs">다른 이름</button>
+</header>
+<div id="main">
+  <aside id="side">
+    <div class="stabs"><button class="st on" data-s="marks">책갈피</button><button class="st" data-s="thumbs">쪽</button></div>
+    <div id="marks" class="spane"></div>
+    <div id="thumbs" class="spane" hidden></div>
+  </aside>
+  <section id="view" tabindex="0"><div id="pages"></div></section>
+  <section id="home">
+    <div class="homebox">
+      <img src="icons/icon-192.png" alt="" width="72" height="72">
+      <h1>하운드 PDF</h1>
+      <button id="bOpen2" class="big">PDF 열기</button>
+      <div class="recent"><div class="rh"><b>최근 연 파일</b><button id="bClear" class="link">목록 비우기</button></div><ul id="recent"></ul></div>
+    </div>
+  </section>
+</div>
+<input type="file" id="file" accept="application/pdf,.pdf" hidden>
+<div id="toast" role="status"></div>
+<script src="vendor/pdf.min.js"></script>
+<script src="vendor/pdf-lib.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
