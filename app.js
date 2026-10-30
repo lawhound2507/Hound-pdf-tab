@@ -2,7 +2,7 @@
 // pdf.js 3.11.174로 보기, pdf-lib로 저장(PDF 표준 Ink 주석 + 모양 그림을 함께 넣어 PC 하운드 PDF, 다른 PDF 프로그램에서도 같게 보임).
 // 사건 PDF는 이 탭 안에서만(바깥으로 보내지 않음, 기록 남기지 않음). 최근 파일은 이 탭 브라우저 저장소(IndexedDB)에만, [목록 비우기]로 지움.
 "use strict";
-const APP_VER = 10;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
+const APP_VER = 11;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
 pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 const $ = s => document.querySelector(s);
 const S = { pdf: null, bytes: null, name: "", handle: null, scale: 1, fit: true, pages: [], strokes: {}, undo: [],
@@ -57,7 +57,7 @@ async function openBytes(buf, name, handle, page = 1) {
   $("#home").hidden = true;
   await layout();
   scrollToPage(page, false);
-  buildOutline(); buildThumbs(); S.evReady = buildEvIndex(); closePeek();
+  buildOutline(); buildThumbs(); S.evReady = buildEvIndex(); closePeek(); S.back = []; drawBack();
   recentPut({ key: S.key, name, bytes: buf.slice(0), at: Date.now(), page });
 }
 
@@ -406,6 +406,7 @@ const PK = { n: 0, scale: 0, list: [] };
 function openPeek(h) {
   const list = resolveHot(h);
   if (!list.length) return toast(`책갈피에 없는 증거입니다 (${h.label || "링크"})`);
+  if (!landscape()) return jumpTo(list[0].n);  // 세로 화면: 아래 창 대신 그 증거 쪽으로 바로 이동, 뒤로가기로 보던 쪽(2026-10-30 팀장님)
   PK.list = list;
   const pick = $("#pkPick"); pick.innerHTML = "";
   if (list.length > 1) for (const it of list) {  // 가지번호 고르기
@@ -415,6 +416,36 @@ function openPeek(h) {
   openSplit();
   showPeek(list[0]);
 }
+// 세로 화면 증거 이동과 뒤로가기(2026-10-30 팀장님 "갑호증 눌렀을때 그 갑호증으로 이동했다가, 뒤로가기 누르면 보던 쪽으로 돌아오게"):
+// 이동마다 보던 자리(쪽, 확대, 스크롤)를 쌓고 history에 한 칸. 안드로이드 뒤로가기(popstate)나 [보던 쪽으로]를 누를 때마다 한 단계씩 돌아옴.
+// 돌아갈 곳이 없을 때 뒤로가기는 앱을 닫지 않고 '한 번 더 누르면 닫힙니다', 2초 안에 또 누르면 닫힘
+S.back = [];
+function viewSpot() { const v = $("#view"); return { n: S.cur, scale: S.scale, fit: S.fit, top: v.scrollTop, left: v.scrollLeft }; }
+function jumpTo(n) {
+  if (!S.pages.length || n === S.cur) return;
+  S.back.push(viewSpot());
+  try { history.pushState({ hpt: "jump", d: S.back.length }, ""); } catch (e) { /* 기록을 못 남겨도 [보던 쪽으로]는 됨 */ }
+  scrollToPage(n, false); drawBack();
+}
+function goBack() {
+  const b = S.back.pop(); drawBack(); if (!b) return;
+  if (b.fit) setScale(fitScale(), true); else if (Math.abs(b.scale - S.scale) > 1e-6) setScale(b.scale);
+  scrollToPage(b.n, false);
+  setTimeout(() => { const v = $("#view"); v.scrollTop = b.top; v.scrollLeft = b.left; setCur(b.n); }, 30);  // 크기 바꾼 뒤 자리 잡히면 같은 위치로
+}
+function drawBack() {
+  const b = $("#bBack"), last = S.back[S.back.length - 1];
+  b.hidden = !last; if (last) b.querySelector("span").textContent = `보던 쪽으로 (${last.n}쪽)`;
+}
+$("#bBack").onclick = () => { if (S.back.length) history.back(); };  // 기록과 맞추려고 뒤로가기와 같은 길로
+let lastExit = 0;
+try { if (!history.state || history.state.hpt !== "guard") history.pushState({ hpt: "guard" }, ""); } catch (e) { /* 지원 안 함 */ }
+addEventListener("popstate", () => {
+  if (S.back.length) return goBack();
+  if (Date.now() - lastExit < 2000) { history.back(); return; }  // 2초 안에 두 번이면 닫기
+  lastExit = Date.now(); toast("한 번 더 누르면 닫힙니다");
+  try { history.pushState({ hpt: "guard" }, ""); } catch (e) { /* 지원 안 함 */ }
+});
 // 증거 창이 열려 있을 때 본문을 짧게 한 번 누르면 닫힘(2026-10-30 팀장님 "닫기 버튼 말고, 보던 페이지 누르면 창 닫히게 해").
 // 증거 표시를 누르면 그 증거로 바뀌고, 밀기, 두 손가락, 쪽 넘김 양 끝 누르기, S펜 그리기는 닫지 않음
 (() => {
