@@ -2,7 +2,7 @@
 // pdf.js 3.11.174로 보기, pdf-lib로 저장(PDF 표준 Ink 주석 + 모양 그림을 함께 넣어 PC 하운드 PDF, 다른 PDF 프로그램에서도 같게 보임).
 // 사건 PDF는 이 탭 안에서만(바깥으로 보내지 않음, 기록 남기지 않음). 최근 파일은 이 탭 브라우저 저장소(IndexedDB)에만, [목록 비우기]로 지움.
 "use strict";
-const APP_VER = 9;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
+const APP_VER = 10;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
 pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 const $ = s => document.querySelector(s);
 const S = { pdf: null, bytes: null, name: "", handle: null, scale: 1, fit: true, pages: [], strokes: {}, undo: [],
@@ -130,7 +130,16 @@ function setCover(on) {
   if (!S.pages.length) return drawViewBtns();
   const cur = S.cur; arrange(); observe(); scrollToPage(cur, false);
 }
+const ICON = {  // 가는 선 그림(글자 대신, 자리를 적게)
+  one: '<svg viewBox="0 0 24 24"><rect x="7" y="4" width="10" height="16" rx="1"/></svg>',
+  two: '<svg viewBox="0 0 24 24"><rect x="2.5" y="5" width="8.5" height="14" rx="1"/><rect x="13" y="5" width="8.5" height="14" rx="1"/></svg>',
+  paged: '<svg viewBox="0 0 24 24"><rect x="4" y="4" width="11" height="16" rx="1"/><path d="M18 9l3 3-3 3"/></svg>',
+  scroll: '<svg viewBox="0 0 24 24"><rect x="5" y="2" width="11" height="9" rx="1"/><rect x="5" y="13" width="11" height="9" rx="1"/><path d="M19.5 8v8M17.5 14l2 2 2-2"/></svg>'
+};
 function drawViewBtns() {
+  const two = $("#bTwoT"), pg = $("#bPagedT");
+  if (two) { two.innerHTML = S.two ? ICON.two : ICON.one; two.title = two.dataset.tip = S.two ? "지금 두 쪽 보기 (누르면 한 쪽)" : "지금 한 쪽 보기 (누르면 두 쪽)"; }
+  if (pg) { pg.innerHTML = S.paged ? ICON.paged : ICON.scroll; pg.title = pg.dataset.tip = S.paged ? "지금 쪽 넘김 (누르면 스크롤)" : "지금 스크롤 (누르면 쪽 넘김)"; }
   $("#bPaged").classList.toggle("on", S.paged); $("#bScroll").classList.toggle("on", !S.paged);
   $("#bOne").classList.toggle("on", !S.two); $("#bTwo").classList.toggle("on", S.two);
   $("#bCover").hidden = !S.two; $("#bCover").classList.toggle("on", S.cover);
@@ -197,12 +206,22 @@ function observe() {
   io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) renderPage(S.pages[+e.target.dataset.n - 1]); }), { root: $("#view"), rootMargin: "800px 0px" });
   S.pages.forEach(p => io.observe(p.el));
 }
+// 한 캔버스에 그리기가 겹치면 pdf.js가 반쯤 그린 상태에서 캔버스를 다시 잡아 쪽이 뒤집혀 보임(2026-10-30 탭 세로 화면 '갑 제2호증'이 거꾸로).
+// 새로 그리기 전에 그리던 것을 멈추고 끝나기를 기다림. 그사이 더 새 요청이 오면 이번 것은 그리지 않음(false)
+async function paint(h, page, cv, vp, sized) {
+  const my = h.paintSeq = (h.paintSeq || 0) + 1;
+  if (h.paintTask) { h.paintTask.cancel(); try { await h.paintTask.promise; } catch (e) { /* 멈춤 */ } }
+  if (h.paintSeq !== my) return false;
+  cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
+  if (sized) sized();
+  const t = h.paintTask = page.render({ canvasContext: cv.getContext("2d"), viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE });
+  try { await t.promise; return h.paintSeq === my; } catch (e) { return false; } finally { if (h.paintTask === t) h.paintTask = null; }
+}
 async function renderPage(pg) {
   if (pg.done === S.scale) return; pg.done = S.scale;
   const dpr = Math.min(window.devicePixelRatio || 1, 2.5), vp = pg.page.getViewport({ scale: S.scale * dpr });
-  const cv = pg.cv; cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
-  pg.ink.width = cv.width; pg.ink.height = cv.height; pg.dpr = dpr;
-  try { await pg.page.render({ canvasContext: cv.getContext("2d"), viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE }).promise; } catch (e) { /* 다시 그리기로 바뀜 */ }
+  const ok = await paint(pg, pg.page, pg.cv, vp, () => { pg.ink.width = pg.cv.width; pg.ink.height = pg.cv.height; pg.dpr = dpr; });
+  if (!ok) return;  // 더 새 그리기가 이어받음
   drawInk(pg);
   if (!pg.hotsDrawn) { pg.hotsDrawn = true; drawHots(pg); }  // 증거번호 밑줄(쪽 비율이라 확대해도 그대로)
 }
@@ -396,6 +415,27 @@ function openPeek(h) {
   openSplit();
   showPeek(list[0]);
 }
+// 증거 창이 열려 있을 때 본문을 짧게 한 번 누르면 닫힘(2026-10-30 팀장님 "닫기 버튼 말고, 보던 페이지 누르면 창 닫히게 해").
+// 증거 표시를 누르면 그 증거로 바뀌고, 밀기, 두 손가락, 쪽 넘김 양 끝 누르기, S펜 그리기는 닫지 않음
+(() => {
+  let t0 = null, n = 0;
+  $("#view").addEventListener("pointerdown", e => {
+    if (e.pointerType === "pen") { t0 = null; return; }
+    n = e.isPrimary ? 1 : n + 1;
+    t0 = n === 1 && (e.pointerType === "touch" || !S.tool) ? { x: e.clientX, y: e.clientY, t: Date.now() } : null;
+  });
+  $("#view").addEventListener("pointerup", e => {
+    if (e.pointerType === "pen") return;
+    n = Math.max(0, n - 1);
+    const s = t0; t0 = null;
+    if (!s || $("#peek").hidden || Date.now() - (S.hotTapAt || 0) < 600) return;
+    if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > 12 || Date.now() - s.t > 450) return;
+    const r = $("#view").getBoundingClientRect(), f = (e.clientX - r.left) / r.width;
+    if (S.paged && !zoomed() && (f < 0.15 || f > 0.85)) return;  // 양 끝 = 쪽 넘기기
+    setTimeout(() => { if (Date.now() - (S.hotTapAt || 0) >= 600) closePeek(); }, 0);
+  });
+  $("#view").addEventListener("pointercancel", () => { t0 = null; n = 0; });
+})();
 // 가로 화면: 증거 옆 창은 덮개가 아니라 화면을 반반 나눔(2026-10-30 팀장님 "창을 가려버리니까 두개를 나란히 못봐").
 // 열 때 책갈피 칸이 열려 있으면 접고 두 쪽 보기면 한 쪽으로(닫으면 원래대로), 본문과 옆 창 모두 높이 맞춤. 가운데 경계를 끌어 나누는 비율 조절(이 탭에 기억)
 const PKS = { side: false, two: false, on: false };
@@ -404,9 +444,11 @@ try { const w = parseFloat(localStorage.getItem("hpt.pkw")); if (w > 0.2 && w < 
 function openSplit() {
   const was = !$("#peek").hidden;
   $("#peek").hidden = false; $("#pkSplit").hidden = !landscape(); document.body.classList.add("peeking");
-  if (was || !landscape()) return;
+  if (was) return;
   PKS.on = true;
-  PKS.side = !$("#side").classList.contains("hide"); if (PKS.side) $("#side").classList.add("hide");
+  PKS.side = !$("#side").classList.contains("hide"); if (PKS.side) $("#side").classList.add("hide");  // 세로 화면에서도 책갈피 칸은 접음(본문을 가리지 않게)
+  PKS.two = false;
+  if (!landscape()) return;
   PKS.two = S.two; if (S.two) setTwo(false, false);
   S.fit = true;  // 본문은 왼쪽 칸에 높이 맞춤(칸 크기가 바뀌면 다시 맞춤)
 }
@@ -434,11 +476,12 @@ async function showPeek(it, keepScale) {
   $("#pkPick").querySelectorAll(".tb").forEach(b => b.classList.toggle("on", b.title === it.label));
   const page = await S.pdf.getPage(it.n), v1 = page.getViewport({ scale: 1 }), body = $("#pkBody");
   if (!keepScale) PK.zoomed = false;
-  if (!keepScale || !PK.scale) PK.scale = Math.max(0.2, Math.min((body.clientWidth - 24) / v1.width, (body.clientHeight - 24) / v1.height));  // 화면에 맞춤
+  // 가로(오른쪽 칸) = 높이 맞춤, 세로(아래 칸, 낮고 넓음) = 폭 맞춤(위아래로 밀어 읽기). 2026-10-30 팀장님 "왜 사이즈 줄고 …"
+  const fitW = (body.clientWidth - 24) / v1.width, fitH = (body.clientHeight - 24) / v1.height;
+  if (!keepScale || !PK.scale) PK.scale = Math.max(0.2, landscape() ? Math.min(fitW, fitH) : fitW);
   const dpr = Math.min(window.devicePixelRatio || 1, 2.5), vp = page.getViewport({ scale: PK.scale * dpr }), cv = $("#pkCanvas");
-  cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height); cv.style.width = (vp.width / dpr) + "px"; cv.style.height = (vp.height / dpr) + "px";
   $("#pkNo").textContent = it.n + " / " + S.pages.length;
-  try { await page.render({ canvasContext: cv.getContext("2d"), viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE }).promise; } catch (e) { /* 다시 그리기로 바뀜 */ }
+  await paint(PK, page, cv, vp, () => { cv.style.width = (vp.width / dpr) + "px"; cv.style.height = (vp.height / dpr) + "px"; });
 }
 function peekStep(d) { const n = Math.min(Math.max(1, PK.n + d), S.pages.length); if (n !== PK.n) showPeek({ n, label: n + "쪽" }, true); }
 $("#pkPrev").onclick = () => peekStep(-1);
@@ -486,7 +529,7 @@ function hookInk(pg) {
   c.addEventListener("pointerdown", e => { tap = (e.pointerType === "touch" || (e.pointerType === "mouse" && !S.tool)) ? { x: e.clientX, y: e.clientY, t: Date.now() } : null; }, true);
   c.addEventListener("pointerup", e => {
     if (!tap || Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 10 || Date.now() - tap.t > 500) { tap = null; return; }
-    tap = null; const h = hotAt(pg, e); if (h) { swipe = null; openPeek(h); }  // swipe = null: 보기 칸의 넘기기 판단을 건너뜀(손가락 수 세기는 그대로)
+    tap = null; const h = hotAt(pg, e); if (h) { swipe = null; S.hotTapAt = Date.now(); openPeek(h); }  // swipe = null: 보기 칸의 넘기기 판단을 건너뜀(손가락 수 세기는 그대로)
   });
 }
 // S펜으로 짧게 누름(거의 안 움직임): 증거 글자면 옆에 보기, 쪽 넘김 화면 양 끝이면 넘기기(점을 찍지 않음). 그은 것은 그대로 그리기
@@ -495,10 +538,11 @@ function penTap(pg, stroke, e) {
   if (Date.now() - stroke.t0 > 350 || Math.hypot(e.clientX - stroke.x0, e.clientY - stroke.y0) > 6) return false;
   const h = hotAt(pg, e), r = $("#view").getBoundingClientRect(), f = (e.clientX - r.left) / r.width;
   const edge = S.paged && !zoomed() && (f < 0.15 || f > 0.85);
+  if (!h && !edge && !$("#peek").hidden) { const a = S.strokes[pg.n] || [], i = a.indexOf(stroke); if (i >= 0) a.splice(i, 1); drawInk(pg); closePeek(); return true; }
   if (!h && !edge) return false;
   const a = S.strokes[pg.n] || [], i = a.indexOf(stroke); if (i >= 0) a.splice(i, 1);
   drawInk(pg);
-  if (h) openPeek(h); else edgeTap(e.clientX);
+  if (h) { S.hotTapAt = Date.now(); openPeek(h); } else edgeTap(e.clientX);
   return true;
 }
 function toPdf(pg, e) {
@@ -564,6 +608,10 @@ $("#view").addEventListener("touchend", e => {
 $("#bZoomIn").onclick = () => setScale(S.scale * 1.25);
 $("#bZoomOut").onclick = () => setScale(S.scale / 1.25);
 $("#bFit").onclick = fitWidth;
+$("#bTwoT").onclick = () => setTwo(!S.two);
+$("#bPagedT").onclick = () => setPaged(!S.paged);
+// 길게 누르면 이름 풍선(터치에서는 title이 안 보여서)
+document.querySelectorAll(".ib").forEach(b => { let t; b.addEventListener("pointerdown", () => { t = setTimeout(() => toast(b.dataset.tip || b.title), 500); }); ["pointerup", "pointerleave", "pointercancel"].forEach(k => b.addEventListener(k, () => clearTimeout(t))); });
 // [보기]: 쪽 보기, 첫 쪽 따로, 넘기기를 작은 창 하나에(단추 줄이 탭 가로 화면을 넘지 않게). 바깥을 누르면 닫힘
 $("#bView").onclick = e => {
   const p = $("#viewPop"), r = e.currentTarget.getBoundingClientRect();

@@ -85,3 +85,5 @@ body.paged:not(.zoomed) #view, body.paged:not(.zoomed) .page canvas.ink { touch-
 #pkCanvas { background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .15); }
 
 @media (max-width: 1440px) { #bar { flex-wrap: wrap; overflow: visible; row-gap: 6px; } #bar .tb { padding: 8px 9px; } #bar .sw { width: 24px; height: 24px; } }
+.tb.ib { padding: 0; width: 40px; display: inline-flex; align-items: center; justify-content: center; }
+.tb.ib svg { width: 22px; height: 22px; fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
