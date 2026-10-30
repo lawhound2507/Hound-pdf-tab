@@ -25,16 +25,19 @@
     <button class="tb" id="bUndo" title="되돌리기">되돌리기</button>
   </span>
   <span class="grow"></span>
-  <span class="seg" title="쪽 보기"><button class="tb" id="bOne">한 쪽</button><button class="tb" id="bTwo">두 쪽</button></span>
-  <button class="tb" id="bCover" title="두 쪽 보기에서 첫 쪽(표지)만 따로">첫 쪽 따로</button>
-  <span class="seg" title="넘기기"><button class="tb" id="bPaged">쪽 넘김</button><button class="tb" id="bScroll">스크롤</button></span>
+  <button class="tb" id="bView" title="쪽 보기, 넘기기">보기</button>
   <span class="pg"><input id="pgNo" inputmode="numeric" aria-label="쪽 번호"> / <span id="pgN">0</span></span>
   <button class="tb" id="bZoomOut" title="축소">−</button>
   <button class="tb" id="bZoomIn" title="확대">+</button>
-  <button class="tb" id="bFit" title="화면에 맞춤(한 쪽은 폭, 두 쪽은 두 쪽이 화면에 다 들어오게)">맞춤</button>
+  <button class="tb" id="bFit" title="높이 맞춤(쪽이 화면 높이에 꼭 맞게, 두 쪽이면 두 쪽이 함께)">높이 맞춤</button>
   <button class="tb solid" id="bSave">저장</button>
   <button class="tb" id="bSaveAs">다른 이름</button>
 </header>
+<div id="viewPop" class="pop" hidden>
+    <span class="seg" title="쪽 보기"><button class="tb" id="bOne">한 쪽</button><button class="tb" id="bTwo">두 쪽</button></span>
+    <button class="tb" id="bCover" title="두 쪽 보기에서 첫 쪽(표지)만 따로">첫 쪽 따로</button>
+    <span class="seg" title="넘기기"><button class="tb" id="bPaged">쪽 넘김</button><button class="tb" id="bScroll">스크롤</button></span>
+</div>
 <div id="main">
   <aside id="side">
     <div class="stabs"><button class="st on" data-s="marks">책갈피</button><button class="st" data-s="thumbs">쪽</button></div>

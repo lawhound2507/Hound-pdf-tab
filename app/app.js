@@ -106,15 +106,13 @@ function setPaged(on) {
   if (S.fit) setScale(fitScale(), true); else observe();
   scrollToPage(cur, false);
 }
-function fitScale() {  // 한 쪽 = 가장 넓은 쪽을 폭에 맞춤, 두 쪽 = 가장 넓은 줄과 가장 긴 쪽이 화면에 다 들어오게(가로 쪽이 섞여도 넘치지 않게)
+function fitScale() {  // 높이 맞춤(PC 하운드 PDF와 같게, 2026-10-30 팀장님 "켜면 높이맞추기로 안되있어서 너무 작고"): 한 줄(한 쪽, 두 쪽)이 화면 높이에, 폭도 넘지 않게
   const view = $("#view"), size = S.pages.map(p => p.page.getViewport({ scale: 1 }));
-  if (!S.two && !S.paged) return Math.max(0.3, (view.clientWidth - 36) / Math.max(...size.map(v => v.width)));  // 양옆 여백(10px씩)과 세로 스크롤 막대 몫
-  // 두 쪽, 또는 쪽 넘김: 줄 전체가 화면 폭과 높이에 다 들어오게
-  let s = Infinity;
-  for (const g of groups(size.length)) {
-    const sumW = g.reduce((a, n) => a + size[n - 1].width, 0), gap = 10 * (g.length - 1);
-    s = Math.min(s, (view.clientWidth - 36 - gap) / sumW, (view.clientHeight - 20) / Math.max(...g.map(n => size[n - 1].height)));
-  }
+  // 가장 많은 쪽 크기 기준(가로 사진 한 장 때문에 모든 쪽이 작아지지 않게). 그 크기 쪽 한 줄(두 쪽이면 둘)이 화면 높이에, 폭도 넘지 않게
+  const cnt = {}; let w0 = 0, h0 = 0, best = 0;
+  for (const v of size) { const k = Math.round(v.width) + "x" + Math.round(v.height); cnt[k] = (cnt[k] || 0) + 1; if (cnt[k] > best) { best = cnt[k]; w0 = v.width; h0 = v.height; } }
+  const k = S.two && size.length > 1 ? 2 : 1;
+  const s = Math.min((view.clientWidth - 36 - 10 * (k - 1)) / (k * w0), (view.clientHeight - 20) / h0);
   return Math.max(0.3, s);
 }
 function setTwo(on, user = true) {
@@ -487,6 +485,13 @@ $("#view").addEventListener("touchend", e => {
 $("#bZoomIn").onclick = () => setScale(S.scale * 1.25);
 $("#bZoomOut").onclick = () => setScale(S.scale / 1.25);
 $("#bFit").onclick = fitWidth;
+// [보기]: 쪽 보기, 첫 쪽 따로, 넘기기를 작은 창 하나에(단추 줄이 탭 가로 화면을 넘지 않게). 바깥을 누르면 닫힘
+$("#bView").onclick = e => {
+  const p = $("#viewPop"), r = e.currentTarget.getBoundingClientRect();
+  if (!p.hidden) { p.hidden = true; return; }
+  p.hidden = false; p.style.top = (r.bottom + 4) + "px"; p.style.left = Math.max(8, Math.min(r.left, innerWidth - p.offsetWidth - 8)) + "px";
+};
+document.addEventListener("pointerdown", e => { const p = $("#viewPop"); if (!p.hidden && !p.contains(e.target) && e.target.id !== "bView") p.hidden = true; });
 let rz; addEventListener("resize", () => {
   clearTimeout(rz);
   rz = setTimeout(() => {
@@ -494,6 +499,11 @@ let rz; addEventListener("resize", () => {
     if (S.fit) fitWidth();
   }, 200);
 });
+// 목록 칸을 열고 닫아 보기 칸 크기가 바뀌어도 높이 맞춤을 다시(창 크기는 그대로일 때)
+let vw0 = 0, vh0 = 0, rz2; new ResizeObserver(() => {
+  const v = $("#view"); if (Math.abs(v.clientWidth - vw0) < 8 && Math.abs(v.clientHeight - vh0) < 8) return;
+  vw0 = v.clientWidth; vh0 = v.clientHeight; clearTimeout(rz2); rz2 = setTimeout(() => { if (S.fit && S.pages.length) fitWidth(); }, 150);
+}).observe($("#view"));
 
 // ---------------- 저장(PDF 표준 Ink 주석 + 모양 그림) ----------------
 function rgb(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; }

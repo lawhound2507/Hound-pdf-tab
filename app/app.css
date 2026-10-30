@@ -47,6 +47,8 @@ body.drawing .page canvas.ink { cursor: crosshair; }
 #recent li .w { color: var(--muted); font-size: 13px; white-space: nowrap; }
 #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 4px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw; }
 #toast.show { opacity: 1; }
+.pop { position: fixed; z-index: 20; background: #fff; border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 4px 14px rgba(0, 0, 0, .15); padding: 8px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.pop[hidden] { display: none; }
 @media (max-width: 900px) { #bar { flex-wrap: wrap; overflow: visible; row-gap: 6px; } #bar .grow { display: none; } .title { flex: 1; max-width: none; } .tools { order: 9; flex-wrap: wrap; } #side { position: absolute; z-index: 5; height: 100%; width: min(320px, 80vw); box-shadow: 2px 0 8px rgba(0, 0, 0, .15); } .tb { padding: 8px 9px; } }
 /* 두 쪽 보기 (2026-10-30 팀장님 "왜 두쪽보기가 안되지"): 한 줄(.spread)에 쪽을 나란히. 쪽마다 좌표는 그 쪽 상자로 따로 계산 */
 .spread { display: flex; gap: 10px; align-items: flex-start; justify-content: center; }
