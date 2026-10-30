@@ -25,10 +25,12 @@
     <button class="tb" id="bUndo" title="되돌리기">되돌리기</button>
   </span>
   <span class="grow"></span>
+  <span class="seg" title="쪽 보기"><button class="tb" id="bOne">한 쪽</button><button class="tb" id="bTwo">두 쪽</button></span>
+  <button class="tb" id="bCover" title="두 쪽 보기에서 첫 쪽(표지)만 따로">첫 쪽 따로</button>
   <span class="pg"><input id="pgNo" inputmode="numeric" aria-label="쪽 번호"> / <span id="pgN">0</span></span>
   <button class="tb" id="bZoomOut" title="축소">−</button>
   <button class="tb" id="bZoomIn" title="확대">+</button>
-  <button class="tb" id="bFit" title="폭 맞춤">폭</button>
+  <button class="tb" id="bFit" title="화면에 맞춤(한 쪽은 폭, 두 쪽은 두 쪽이 화면에 다 들어오게)">맞춤</button>
   <button class="tb solid" id="bSave">저장</button>
   <button class="tb" id="bSaveAs">다른 이름</button>
 </header>
@@ -50,6 +52,7 @@
 </div>
 <input type="file" id="file" accept="application/pdf,.pdf" hidden>
 <div id="toast" role="status"></div>
+<div id="update" hidden><span>새 판이 있어요</span><button id="bReload" class="tb solid">다시 열기</button></div>
 <script src="vendor/pdf.min.js"></script>
 <script src="vendor/pdf-lib.min.js"></script>
 <script src="app.js"></script>
