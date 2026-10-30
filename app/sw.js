@@ -1,6 +1,6 @@
 // 하운드 PDF(탭) 서비스 워커: 앱 파일을 모두 저장해 두고 인터넷 없이도 동작(먼저 저장본, 판이 바뀌면 VERSION을 올림).
 // 사건 PDF는 여기 저장하지 않음(앱 파일만). 바깥으로 보내는 요청 없음.
-const VERSION = "houndpdf-tab-4";
+const VERSION = "houndpdf-tab-5";  // 2026-10-30 두 쪽 보기
 const FILES = ["./", "index.html", "app.css", "app.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png",
   "vendor/pdf.min.js", "vendor/pdf.worker.min.js", "vendor/pdf-lib.min.js"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });

@@ -60,20 +60,84 @@ async function openBytes(buf, name, handle, page = 1) {
   recentPut({ key: S.key, name, bytes: buf.slice(0), at: Date.now(), page });
 }
 
+// ---------------- 두 쪽 보기 (2026-10-30 팀장님 "왜 두쪽보기가 안되지") ----------------
+// [한 쪽][두 쪽](PC 하운드 PDF '쪽 보기'와 같은 이름). 고른 적이 없으면 가로 화면 = 두 쪽, 세로 = 한 쪽. 고르면 이 탭에 기억.
+// '첫 쪽 따로'(표지): 두 쪽 보기에서 1쪽만 한 줄, 그다음 2-3, 4-5 … (기본 켬, 기억).
+// 쪽마다 따로 그리고 펜 좌표도 그 쪽 상자로 계산하므로(toPdf) 두 쪽 보기에서도 표시와 저장 좌표가 그대로.
+function pref(k, d) { try { const v = localStorage.getItem("hpt." + k); return v === null ? d : v === "1"; } catch (e) { return d; } }
+function setPref(k, v) { try { localStorage.setItem("hpt." + k, v ? "1" : "0"); } catch (e) { /* 저장소를 못 쓰면 이번만 */ } }
+function landscape() { return innerWidth > innerHeight; }
+function wantTwo() { return pref("two", null) === null ? landscape() : pref("two", false); }
+S.two = wantTwo(); S.cover = pref("cover", true);
+function groups(n) {  // 한 줄에 들어갈 쪽 번호들
+  const out = [];
+  if (!S.two) { for (let i = 1; i <= n; i++) out.push([i]); return out; }
+  let i = 1;
+  if (S.cover) { out.push([1]); i = 2; }
+  for (; i <= n; i += 2) out.push(i + 1 <= n ? [i, i + 1] : [i]);
+  return out;
+}
+function arrange() {  // 쪽 상자들을 줄(.spread)에 다시 담음(그린 것, 펜 표시는 그대로)
+  const box = $("#pages"); box.innerHTML = "";
+  for (const g of groups(S.pages.length)) {
+    const row = document.createElement("div"); row.className = "spread";
+    for (const n of g) row.appendChild(S.pages[n - 1].el);
+    box.appendChild(row);
+  }
+  drawViewBtns();
+}
+function fitScale() {  // 한 쪽 = 가장 넓은 쪽을 폭에 맞춤, 두 쪽 = 가장 넓은 줄과 가장 긴 쪽이 화면에 다 들어오게(가로 쪽이 섞여도 넘치지 않게)
+  const view = $("#view"), size = S.pages.map(p => p.page.getViewport({ scale: 1 }));
+  if (!S.two) return Math.max(0.3, (view.clientWidth - 36) / Math.max(...size.map(v => v.width)));  // 양옆 여백(10px씩)과 세로 스크롤 막대 몫
+  let s = Infinity;
+  for (const g of groups(size.length)) {
+    const sumW = g.reduce((a, n) => a + size[n - 1].width, 0), gap = 10 * (g.length - 1);
+    s = Math.min(s, (view.clientWidth - 36 - gap) / sumW, (view.clientHeight - 20) / Math.max(...g.map(n => size[n - 1].height)));
+  }
+  return Math.max(0.3, s);
+}
+function setTwo(on, user = true) {
+  if (user) setPref("two", on);
+  if (S.two === on) return drawViewBtns();
+  S.two = on;
+  if (!S.pages.length) return drawViewBtns();
+  const cur = S.cur; arrange();
+  if (S.fit) setScale(fitScale(), true); else observe();
+  scrollToPage(cur, false);
+}
+function setCover(on) {
+  setPref("cover", on); S.cover = on;
+  if (!S.pages.length) return drawViewBtns();
+  const cur = S.cur; arrange(); observe(); scrollToPage(cur, false);
+}
+function drawViewBtns() {
+  $("#bOne").classList.toggle("on", !S.two); $("#bTwo").classList.toggle("on", S.two);
+  $("#bCover").hidden = !S.two; $("#bCover").classList.toggle("on", S.cover);
+}
+$("#bOne").onclick = () => setTwo(false);
+$("#bTwo").onclick = () => setTwo(true);
+$("#bCover").onclick = () => setCover(!S.cover);
+function spreadOf(n) { return groups(S.pages.length).findIndex(g => g.includes(n)); }
+function stepSpread(d) {  // 두 쪽 보기면 두 쪽씩 넘김
+  const gs = groups(S.pages.length), i = spreadOf(S.cur), j = Math.min(Math.max(0, i + d), gs.length - 1);
+  scrollToPage(gs[j][0]);
+}
+
 // ---------------- 쪽 배치, 그리기 ----------------
 async function layout() {
-  const box = $("#pages"); box.innerHTML = ""; S.pages = [];
-  const first = await S.pdf.getPage(1), v1 = first.getViewport({ scale: 1 });
-  if (S.fit) S.scale = Math.max(0.3, ($("#view").clientWidth - 36) / v1.width);  // 양옆 여백(10px씩)과 세로 스크롤 막대 몫
+  S.pages = [];
+  const first = await S.pdf.getPage(1);
   for (let i = 1; i <= S.pdf.numPages; i++) {
-    const p = i === 1 ? first : await S.pdf.getPage(i), vp = p.getViewport({ scale: S.scale });
+    const p = i === 1 ? first : await S.pdf.getPage(i);
     const el = document.createElement("div"); el.className = "page"; el.dataset.n = i;
-    el.style.width = vp.width + "px"; el.style.height = vp.height + "px";
     const cv = document.createElement("canvas"), ink = document.createElement("canvas"); ink.className = "ink";
-    el.append(cv, ink); box.appendChild(el);
-    const pg = { n: i, page: p, vp, el, cv, ink, done: 0 };
+    el.append(cv, ink);
+    const pg = { n: i, page: p, vp: null, el, cv, ink, done: 0 };
     S.pages.push(pg); hookInk(pg);
   }
+  arrange();
+  if (S.fit) S.scale = fitScale();
+  S.pages.forEach(pg => { pg.vp = pg.page.getViewport({ scale: S.scale }); pg.el.style.width = pg.vp.width + "px"; pg.el.style.height = pg.vp.height + "px"; });
   $("#pgN").textContent = S.pdf.numPages;
   observe();
 }
@@ -98,10 +162,10 @@ function setScale(s, keepFit = false) {
   observe();
   if (S.pages[cur - 1]) view.scrollTop = S.pages[cur - 1].el.offsetTop + rel * S.scale;
 }
-function fitWidth() { if (!S.pages.length) return; setScale(($("#view").clientWidth - 36) / S.pages[0].page.getViewport({ scale: 1 }).width, true); }
+function fitWidth() { if (!S.pages.length) return; setScale(fitScale(), true); }
 
 // ---------------- 쪽 이동 ----------------
-function scrollToPage(n, smooth = true) {
+function scrollToPage(n, smooth = true) {  // 두 쪽 보기면 그 쪽이 든 줄로(줄의 쪽들은 위가 같음)
   n = Math.min(Math.max(1, n | 0), S.pages.length); const pg = S.pages[n - 1]; if (!pg) return;
   $("#view").scrollTo({ top: pg.el.offsetTop - 8, behavior: smooth ? "smooth" : "auto" }); setCur(n);
 }
@@ -113,7 +177,8 @@ function setCur(n) {
 }
 $("#view").addEventListener("scroll", () => {
   const top = $("#view").scrollTop + $("#view").clientHeight / 3;
-  let n = 1; for (const pg of S.pages) { if (pg.el.offsetTop <= top) n = pg.n; else break; }
+  let n = 1, rowTop = -1;  // 두 쪽 보기: 줄의 왼쪽 쪽 번호
+  for (const pg of S.pages) { const t = pg.el.offsetTop; if (t > top) break; if (t !== rowTop) { n = pg.n; rowTop = t; } }
   setCur(n);
 }, { passive: true });
 $("#pgNo").addEventListener("change", e => scrollToPage(+e.target.value));
@@ -263,7 +328,13 @@ $("#view").addEventListener("touchend", e => {
 $("#bZoomIn").onclick = () => setScale(S.scale * 1.25);
 $("#bZoomOut").onclick = () => setScale(S.scale / 1.25);
 $("#bFit").onclick = fitWidth;
-let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { if (S.fit) fitWidth(); }, 200); });
+let rz; addEventListener("resize", () => {
+  clearTimeout(rz);
+  rz = setTimeout(() => {
+    if (pref("two", null) === null && S.two !== landscape()) return setTwo(landscape(), false);  // 고른 적이 없으면 탭을 돌릴 때 따라감
+    if (S.fit) fitWidth();
+  }, 200);
+});
 
 // ---------------- 저장(PDF 표준 Ink 주석 + 모양 그림) ----------------
 function rgb(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; }
@@ -321,8 +392,19 @@ $("#bSaveAs").onclick = () => save(true);
 $("#bOpen").onclick = pickFile; $("#bOpen2").onclick = pickFile;
 $("#bClear").onclick = async () => { if (!confirm("최근 연 파일 목록과 이 탭에 저장해 둔 사본을 지울까요?")) return; try { await dbDo("readwrite", st => st.clear()); } catch (e) { /* 무시 */ } drawRecent(); };
 addEventListener("beforeunload", e => { if (S.dirty) { e.preventDefault(); e.returnValue = ""; } });
-addEventListener("keydown", e => { if (e.key === "PageDown") scrollToPage(S.cur + 1); if (e.key === "PageUp") scrollToPage(S.cur - 1); });
+addEventListener("keydown", e => {
+  if (e.target && e.target.tagName === "INPUT") return;
+  if (e.key === "PageDown" || e.key === "ArrowRight") stepSpread(1);
+  if (e.key === "PageUp" || e.key === "ArrowLeft") stepSpread(-1);
+});
 
 setTool("pen");
+drawViewBtns();
 drawRecent();
-if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => {});
+// 새 판: 서비스 워커가 새 앱 파일을 받으면 '새 판이 있어요 [다시 열기]' (sw.js VERSION을 올리면 생김)
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  const had = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (had) $("#update").hidden = false; });
+  navigator.serviceWorker.register("sw.js").then(r => r.update()).catch(() => {});
+}
+$("#bReload").onclick = () => { if (S.dirty && !confirm("표시한 것을 저장하지 않았습니다. 그래도 다시 열까요?")) return; location.reload(); };
