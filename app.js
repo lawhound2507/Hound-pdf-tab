@@ -2,7 +2,7 @@
 // pdf.js 3.11.174로 보기, pdf-lib로 저장(PDF 표준 Ink 주석 + 모양 그림을 함께 넣어 PC 하운드 PDF, 다른 PDF 프로그램에서도 같게 보임).
 // 사건 PDF는 이 탭 안에서만(바깥으로 보내지 않음, 기록 남기지 않음). 최근 파일은 이 탭 브라우저 저장소(IndexedDB)에만, [목록 비우기]로 지움.
 "use strict";
-const APP_VER = 8;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
+const APP_VER = 9;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
 pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 const $ = s => document.querySelector(s);
 const S = { pdf: null, bytes: null, name: "", handle: null, scale: 1, fit: true, pages: [], strokes: {}, undo: [],
@@ -57,7 +57,7 @@ async function openBytes(buf, name, handle, page = 1) {
   $("#home").hidden = true;
   await layout();
   scrollToPage(page, false);
-  buildOutline(); buildThumbs(); S.evReady = buildEvIndex(); $("#peek").hidden = true;
+  buildOutline(); buildThumbs(); S.evReady = buildEvIndex(); closePeek();
   recentPut({ key: S.key, name, bytes: buf.slice(0), at: Date.now(), page });
 }
 
@@ -393,13 +393,47 @@ function openPeek(h) {
     const b = document.createElement("button"); b.className = "tb"; b.textContent = it.label.replace(/^.* 제\d+호증의 /, "의 ");
     b.title = it.label; b.onclick = () => showPeek(it); pick.appendChild(b);
   }
-  $("#peek").hidden = false;
+  openSplit();
   showPeek(list[0]);
 }
+// 가로 화면: 증거 옆 창은 덮개가 아니라 화면을 반반 나눔(2026-10-30 팀장님 "창을 가려버리니까 두개를 나란히 못봐").
+// 열 때 책갈피 칸이 열려 있으면 접고 두 쪽 보기면 한 쪽으로(닫으면 원래대로), 본문과 옆 창 모두 높이 맞춤. 가운데 경계를 끌어 나누는 비율 조절(이 탭에 기억)
+const PKS = { side: false, two: false, on: false };
+function pkWidth(f) { $("#main").style.setProperty("--pkw", Math.round(f * 1000) / 10 + "%"); }
+try { const w = parseFloat(localStorage.getItem("hpt.pkw")); if (w > 0.2 && w < 0.8) pkWidth(w); } catch (e) { /* 기본 반반 */ }
+function openSplit() {
+  const was = !$("#peek").hidden;
+  $("#peek").hidden = false; $("#pkSplit").hidden = !landscape(); document.body.classList.add("peeking");
+  if (was || !landscape()) return;
+  PKS.on = true;
+  PKS.side = !$("#side").classList.contains("hide"); if (PKS.side) $("#side").classList.add("hide");
+  PKS.two = S.two; if (S.two) setTwo(false, false);
+  S.fit = true;  // 본문은 왼쪽 칸에 높이 맞춤(칸 크기가 바뀌면 다시 맞춤)
+}
+function closePeek() {
+  $("#peek").hidden = true; $("#pkSplit").hidden = true; document.body.classList.remove("peeking");
+  if (!PKS.on) return;
+  PKS.on = false;
+  if (PKS.side) $("#side").classList.remove("hide");
+  if (PKS.two && !S.two) setTwo(true, false);
+}
+(() => {  // 가운데 경계 끌기
+  const bar = $("#pkSplit"); let drag = false;
+  bar.addEventListener("pointerdown", e => { drag = true; try { bar.setPointerCapture(e.pointerId); } catch (err) { /* 붙잡기 없이도 됨 */ } e.preventDefault(); });
+  bar.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const r = $("#main").getBoundingClientRect(), f = Math.min(0.75, Math.max(0.25, (r.right - e.clientX) / r.width));
+    pkWidth(f); try { localStorage.setItem("hpt.pkw", String(f)); } catch (err) { /* 이번만 */ }
+  });
+  const end = () => { drag = false; };
+  bar.addEventListener("pointerup", end); bar.addEventListener("pointercancel", end);
+  let t; new ResizeObserver(() => { clearTimeout(t); t = setTimeout(() => { if (!$("#peek").hidden && PK.n && !PK.zoomed) showPeek({ n: PK.n, label: $("#pkTitle").textContent }); }, 150); }).observe($("#pkBody"));
+})();
 async function showPeek(it, keepScale) {
   PK.n = it.n; $("#pkTitle").textContent = it.label || (it.n + "쪽"); $("#pkTitle").title = $("#pkTitle").textContent;
   $("#pkPick").querySelectorAll(".tb").forEach(b => b.classList.toggle("on", b.title === it.label));
   const page = await S.pdf.getPage(it.n), v1 = page.getViewport({ scale: 1 }), body = $("#pkBody");
+  if (!keepScale) PK.zoomed = false;
   if (!keepScale || !PK.scale) PK.scale = Math.max(0.2, Math.min((body.clientWidth - 24) / v1.width, (body.clientHeight - 24) / v1.height));  // 화면에 맞춤
   const dpr = Math.min(window.devicePixelRatio || 1, 2.5), vp = page.getViewport({ scale: PK.scale * dpr }), cv = $("#pkCanvas");
   cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height); cv.style.width = (vp.width / dpr) + "px"; cv.style.height = (vp.height / dpr) + "px";
@@ -409,10 +443,10 @@ async function showPeek(it, keepScale) {
 function peekStep(d) { const n = Math.min(Math.max(1, PK.n + d), S.pages.length); if (n !== PK.n) showPeek({ n, label: n + "쪽" }, true); }
 $("#pkPrev").onclick = () => peekStep(-1);
 $("#pkNext").onclick = () => peekStep(1);
-$("#pkIn").onclick = () => { PK.scale *= 1.25; showPeek({ n: PK.n, label: $("#pkTitle").textContent }, true); };
-$("#pkOut").onclick = () => { PK.scale /= 1.25; showPeek({ n: PK.n, label: $("#pkTitle").textContent }, true); };
-$("#pkGo").onclick = () => { const n = PK.n; $("#peek").hidden = true; scrollToPage(n); };
-$("#pkClose").onclick = () => { $("#peek").hidden = true; };
+$("#pkIn").onclick = () => { PK.scale *= 1.25; PK.zoomed = true; showPeek({ n: PK.n, label: $("#pkTitle").textContent }, true); };
+$("#pkOut").onclick = () => { PK.scale /= 1.25; PK.zoomed = true; showPeek({ n: PK.n, label: $("#pkTitle").textContent }, true); };
+$("#pkGo").onclick = () => { const n = PK.n; closePeek(); scrollToPage(n); };
+$("#pkClose").onclick = closePeek;
 
 // ---------------- 펜(손가락은 넘기기, 펜은 그리기) ----------------
 function isPenEvent(e) { return e.pointerType === "pen" || (e.pointerType === "mouse" && S.tool); }
@@ -540,7 +574,7 @@ document.addEventListener("pointerdown", e => { const p = $("#viewPop"); if (!p.
 let rz; addEventListener("resize", () => {
   clearTimeout(rz);
   rz = setTimeout(() => {
-    if (pref("two", null) === null && S.two !== landscape()) return setTwo(landscape(), false);  // 고른 적이 없으면 탭을 돌릴 때 따라감
+    if (pref("two", null) === null && !PKS.on && S.two !== landscape()) return setTwo(landscape(), false);  // 고른 적이 없으면 탭을 돌릴 때 따라감
     if (S.fit) fitWidth();
   }, 200);
 });
