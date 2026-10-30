@@ -56,7 +56,7 @@ async function openBytes(buf, name, handle, page = 1) {
   $("#home").hidden = true;
   await layout();
   scrollToPage(page, false);
-  buildOutline(); buildThumbs();
+  buildOutline(); buildThumbs(); buildEvIndex(); $("#peek").hidden = true;
   recentPut({ key: S.key, name, bytes: buf.slice(0), at: Date.now(), page });
 }
 
@@ -69,6 +69,8 @@ function setPref(k, v) { try { localStorage.setItem("hpt." + k, v ? "1" : "0"); 
 function landscape() { return innerWidth > innerHeight; }
 function wantTwo() { return pref("two", null) === null ? landscape() : pref("two", false); }
 S.two = wantTwo(); S.cover = pref("cover", true);
+// 넘기기 [쪽 넘김][스크롤](PC 하운드 PDF와 같은 이름, 기본 쪽 넘김, 고르면 기억): 쪽 넘김은 지금 줄만 화면에 맞춰 보여 줌
+S.paged = pref("paged", true);
 function groups(n) {  // 한 줄에 들어갈 쪽 번호들
   const out = [];
   if (!S.two) { for (let i = 1; i <= n; i++) out.push([i]); return out; }
@@ -85,10 +87,29 @@ function arrange() {  // 쪽 상자들을 줄(.spread)에 다시 담음(그린 �
     box.appendChild(row);
   }
   drawViewBtns();
+  showSpread();
+}
+function showSpread() {  // 쪽 넘김: 지금 쪽이 든 줄만 보임 / 스크롤: 모두
+  const rows = [...document.querySelectorAll("#pages .spread")], i = S.paged ? spreadOf(S.cur) : -1;
+  rows.forEach((r, k) => { r.style.display = !S.paged || k === i ? "" : "none"; });
+  document.body.classList.toggle("paged", S.paged);
+  markZoom();
+}
+function zoomed() { return !!S.pages.length && S.scale > fitScale() * 1.02; }
+function markZoom() { document.body.classList.toggle("zoomed", S.paged && zoomed()); }
+function setPaged(on) {
+  setPref("paged", on);
+  if (S.paged === on) return drawViewBtns();
+  S.paged = on;
+  if (!S.pages.length) return drawViewBtns();
+  const cur = S.cur; drawViewBtns(); showSpread();
+  if (S.fit) setScale(fitScale(), true); else observe();
+  scrollToPage(cur, false);
 }
 function fitScale() {  // 한 쪽 = 가장 넓은 쪽을 폭에 맞춤, 두 쪽 = 가장 넓은 줄과 가장 긴 쪽이 화면에 다 들어오게(가로 쪽이 섞여도 넘치지 않게)
   const view = $("#view"), size = S.pages.map(p => p.page.getViewport({ scale: 1 }));
-  if (!S.two) return Math.max(0.3, (view.clientWidth - 36) / Math.max(...size.map(v => v.width)));  // 양옆 여백(10px씩)과 세로 스크롤 막대 몫
+  if (!S.two && !S.paged) return Math.max(0.3, (view.clientWidth - 36) / Math.max(...size.map(v => v.width)));  // 양옆 여백(10px씩)과 세로 스크롤 막대 몫
+  // 두 쪽, 또는 쪽 넘김: 줄 전체가 화면 폭과 높이에 다 들어오게
   let s = Infinity;
   for (const g of groups(size.length)) {
     const sumW = g.reduce((a, n) => a + size[n - 1].width, 0), gap = 10 * (g.length - 1);
@@ -111,12 +132,32 @@ function setCover(on) {
   const cur = S.cur; arrange(); observe(); scrollToPage(cur, false);
 }
 function drawViewBtns() {
+  $("#bPaged").classList.toggle("on", S.paged); $("#bScroll").classList.toggle("on", !S.paged);
   $("#bOne").classList.toggle("on", !S.two); $("#bTwo").classList.toggle("on", S.two);
   $("#bCover").hidden = !S.two; $("#bCover").classList.toggle("on", S.cover);
 }
 $("#bOne").onclick = () => setTwo(false);
 $("#bTwo").onclick = () => setTwo(true);
 $("#bCover").onclick = () => setCover(!S.cover);
+$("#bPaged").onclick = () => setPaged(true);
+$("#bScroll").onclick = () => setPaged(false);
+// 쪽 넘김에서 손가락으로 옆으로 밀거나 화면 왼쪽, 오른쪽 끝(15%)을 누르면 앞, 다음(확대했을 때는 밀기 = 화면 이동, 넘기지 않음)
+let swipe = null;
+$("#view").addEventListener("touchstart", e => {
+  swipe = S.paged && e.touches.length === 1 && e.touches[0].touchType !== "stylus" ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() } : null;
+}, { passive: true });
+$("#view").addEventListener("touchend", e => {
+  if (!swipe || e.touches.length || pinch) { swipe = null; return; }
+  const t = e.changedTouches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y; const s = swipe; swipe = null;
+  if (zoomed()) return;
+  if (Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) { stepSpread(dx < 0 ? 1 : -1); return; }
+  if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && Date.now() - s.t < 400) edgeTap(t.clientX);
+});
+$("#view").addEventListener("click", e => { if (S.paged && !S.tool && e.pointerType !== "touch" && !e.sourceCapabilities?.firesTouchEvents) edgeTap(e.clientX); });
+function edgeTap(x) {
+  const r = $("#view").getBoundingClientRect(), f = (x - r.left) / r.width;
+  if (f < 0.15) stepSpread(-1); else if (f > 0.85) stepSpread(1);
+}
 function spreadOf(n) { return groups(S.pages.length).findIndex(g => g.includes(n)); }
 function stepSpread(d) {  // 두 쪽 보기면 두 쪽씩 넘김
   const gs = groups(S.pages.length), i = spreadOf(S.cur), j = Math.min(Math.max(0, i + d), gs.length - 1);
@@ -154,12 +195,14 @@ async function renderPage(pg) {
   pg.ink.width = cv.width; pg.ink.height = cv.height; pg.dpr = dpr;
   try { await pg.page.render({ canvasContext: cv.getContext("2d"), viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE }).promise; } catch (e) { /* 다시 그리기로 바뀜 */ }
   drawInk(pg);
+  if (!pg.hotsDrawn) { pg.hotsDrawn = true; drawHots(pg); }  // 증거번호 밑줄(쪽 비율이라 확대해도 그대로)
 }
 function setScale(s, keepFit = false) {
   const view = $("#view"), cur = S.cur, rel = (view.scrollTop - (S.pages[cur - 1] ? S.pages[cur - 1].el.offsetTop : 0)) / (S.scale || 1);
   S.scale = Math.min(6, Math.max(0.3, s)); S.fit = keepFit;
   S.pages.forEach(pg => { pg.vp = pg.page.getViewport({ scale: S.scale }); pg.el.style.width = pg.vp.width + "px"; pg.el.style.height = pg.vp.height + "px"; pg.done = 0; });
   observe();
+  if (S.paged) { markZoom(); return; }  // 쪽 넘김: 확대했을 때만 화면 이동
   if (S.pages[cur - 1]) view.scrollTop = S.pages[cur - 1].el.offsetTop + rel * S.scale;
 }
 function fitWidth() { if (!S.pages.length) return; setScale(fitScale(), true); }
@@ -167,6 +210,7 @@ function fitWidth() { if (!S.pages.length) return; setScale(fitScale(), true); }
 // ---------------- 쪽 이동 ----------------
 function scrollToPage(n, smooth = true) {  // 두 쪽 보기면 그 쪽이 든 줄로(줄의 쪽들은 위가 같음)
   n = Math.min(Math.max(1, n | 0), S.pages.length); const pg = S.pages[n - 1]; if (!pg) return;
+  if (S.paged) { setCur(n); showSpread(); $("#view").scrollTo({ top: 0, left: 0 }); return; }  // 쪽 넘김: 그 줄만 보임
   $("#view").scrollTo({ top: pg.el.offsetTop - 8, behavior: smooth ? "smooth" : "auto" }); setCur(n);
 }
 function setCur(n) {
@@ -176,6 +220,7 @@ function setCur(n) {
   clearTimeout(setCur.t); setCur.t = setTimeout(() => recentPage(S.key, n), 800);
 }
 $("#view").addEventListener("scroll", () => {
+  if (S.paged) return;  // 쪽 넘김에서는 지금 쪽이 넘김으로만 바뀜
   const top = $("#view").scrollTop + $("#view").clientHeight / 3;
   let n = 1, rowTop = -1;  // 두 쪽 보기: 줄의 왼쪽 쪽 번호
   for (const pg of S.pages) { const t = pg.el.offsetTop; if (t > top) break; if (t !== rowTop) { n = pg.n; rowTop = t; } }
@@ -233,6 +278,113 @@ document.querySelectorAll(".st").forEach(b => b.onclick = () => showSide(b.datas
 $("#bSide").onclick = () => $("#side").classList.toggle("hide");
 $("#view").addEventListener("pointerdown", () => { if (innerWidth <= 900) $("#side").classList.add("hide"); });  // 좁은 화면: 바깥을 누르면 목록 닫힘
 
+// ---------------- 증거번호 누르면 옆에 (2026-10-30 팀장님 "갑1호증 누르면 옆에 보여지는거") ----------------
+// 쪽마다: ① PDF에 이미 들어 있는 링크(기록철이 만든 갑 제N호증 → 증거 쪽) ② 글자에서 증거 표기 찾기(PC 기록철 evidence.py와 같은 규칙, evidence.js)
+// 증거 쪽은 책갈피 제목('갑 제1호증의1 …')으로 찾음. 누르면 가로 화면 = 오른쪽 반, 세로 = 아래 반에 그 쪽(앞 쪽, 다음 쪽, 확대, 이 쪽으로, 닫기).
+// 밑줄은 보이기만(누름은 펜 층에서 손가락, 마우스 짧게 누름으로 판단: S펜 그리기를 막지 않게).
+const CHAR_W = c => (c >= "가" && c <= "힣") || (c >= "一" && c <= "鿿") ? 1 : ".,:;'\"!|()[]·".includes(c) ? 0.3 : 0.55;
+async function buildEvIndex() {  // 증거 키 → 쪽 (책갈피 제목)
+  S.ev = new Map();
+  const walk = async items => { for (const it of items || []) {
+    const k = Evid.firstLabel(it.title || "", true);
+    if (k && !S.ev.has(k)) { const n = await destPage(it.dest); if (n) S.ev.set(k, n); }
+    await walk(it.items);
+  } };
+  try { await walk(await S.pdf.getOutline()); } catch (e) { /* 책갈피가 없으면 링크만 */ }
+}
+async function pageHots(pg) {  // 이 쪽의 누를 곳 [{r:[x0,y0,x1,y1](쪽 기본 크기 비율), key|page, label}]
+  if (pg.hots) return pg.hots;
+  const v1 = pg.page.getViewport({ scale: 1 }), hots = [];
+  try {  // ① 이미 있는 링크
+    for (const a of await pg.page.getAnnotations()) {
+      if (a.subtype !== "Link" || !a.dest) continue;
+      const n = await destPage(a.dest); if (!n) continue;
+      const [x0, y0] = v1.convertToViewportPoint(a.rect[0], a.rect[3]), [x1, y1] = v1.convertToViewportPoint(a.rect[2], a.rect[1]);
+      hots.push({ r: [Math.min(x0, x1) / v1.width, Math.min(y0, y1) / v1.height, Math.max(x0, x1) / v1.width, Math.max(y0, y1) / v1.height], page: n, link: true });
+    }
+  } catch (e) { /* 링크를 못 읽으면 글자만 */ }
+  try {  // ② 글자에서 증거 표기
+    const tc = await pg.page.getTextContent(); let text = ""; const own = [];
+    tc.items.forEach((it, i) => {
+      if (!it.str) { if (it.hasEOL) { text += "\n"; own.push(null); } return; }
+      if (text) { text += it.hasEOL ? "" : " "; own.push(null); }
+      for (let k = 0; k < it.str.length; k++) own.push([i, k]);
+      text += it.str;
+      if (it.hasEOL) { text += "\n"; own.push(null); }
+    });
+    const boxOf = (i, a, b) => {  // 글자 범위 → 비율 사각형(글자 폭을 한글 넓게, 숫자 좁게 나눔)
+      const it = tc.items[i], t = pdfjsLib.Util.transform(v1.transform, it.transform), h = Math.hypot(t[2], t[3]) || 10;
+      const cum = [0]; for (const c of it.str) cum.push(cum[cum.length - 1] + CHAR_W(c));
+      const w = it.width * v1.scale, k = w / (cum[cum.length - 1] || 1);
+      return [(t[4] + k * cum[a]) / v1.width, (t[5] - h) / v1.height, (t[4] + k * cum[b]) / v1.width, (t[5] + h * 0.15) / v1.height];
+    };
+    for (const f of Evid.findRefs(text)) {
+      for (const [key, a, b] of f.refs) {
+        const cover = new Map();
+        for (let i = a; i < Math.min(b, own.length); i++) { const o = own[i]; if (!o) continue; const c = cover.get(o[0]) || [o[1], o[1] + 1]; cover.set(o[0], [Math.min(c[0], o[1]), Math.max(c[1], o[1] + 1)]); }
+        for (const [i, [x, y]] of cover) {
+          const r = boxOf(i, x, y);
+          if (hots.some(h => h.link && r[0] < h.r[2] && r[2] > h.r[0] && r[1] < h.r[3] && r[3] > h.r[1])) continue;  // 링크와 겹치면 링크
+          hots.push({ r, key, label: Evid.labelKey(key) });
+        }
+      }
+    }
+  } catch (e) { /* 글자 층이 없는 쪽(사진 등) */ }
+  pg.hots = hots;
+  return hots;
+}
+async function drawHots(pg) {
+  const hots = await pageHots(pg);
+  pg.el.querySelectorAll(".evref").forEach(e => e.remove());
+  for (const h of hots) {
+    const d = document.createElement("div"); d.className = "evref";
+    d.style.left = (h.r[0] * 100) + "%"; d.style.top = (h.r[1] * 100) + "%"; d.style.width = ((h.r[2] - h.r[0]) * 100) + "%"; d.style.height = ((h.r[3] - h.r[1]) * 100) + "%";
+    pg.el.appendChild(d);
+  }
+}
+function hotAt(pg, e) {
+  const r = pg.ink.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height, pad = 0.006;
+  return (pg.hots || []).find(h => fx >= h.r[0] - pad && fx <= h.r[2] + pad && fy >= h.r[1] - pad && fy <= h.r[3] + pad);
+}
+function resolveHot(h) {  // → {pages:[{n, label}]} 가지번호가 여럿이면 고르기
+  if (h.page) return [{ n: h.page, label: S.ev && [...S.ev].find(([, n]) => n === h.page)?.[0] ? Evid.labelKey([...S.ev].find(([, n]) => n === h.page)[0]) : h.page + "쪽" }];
+  const ev = S.ev || new Map(), [side, num, sub] = Evid.parseKey(h.key);
+  if (ev.has(h.key)) return [{ n: ev.get(h.key), label: Evid.labelKey(h.key) }];
+  if (sub) { const base = Evid.makeKey(side, num); if (ev.has(base)) return [{ n: ev.get(base), label: Evid.labelKey(base) }]; }
+  const subs = [...ev].filter(([k]) => k.startsWith(`${side}-${String(num).padStart(4, "0")}-`)).sort((a, b) => a[0] < b[0] ? -1 : 1);
+  return subs.map(([k, n]) => ({ n, label: Evid.labelKey(k) }));
+}
+const PK = { n: 0, scale: 0, list: [] };
+function openPeek(h) {
+  const list = resolveHot(h);
+  if (!list.length) return toast(`책갈피에 없는 증거입니다 (${h.label || "링크"})`);
+  PK.list = list;
+  const pick = $("#pkPick"); pick.innerHTML = "";
+  if (list.length > 1) for (const it of list) {  // 가지번호 고르기
+    const b = document.createElement("button"); b.className = "tb"; b.textContent = it.label.replace(/^.* 제\d+호증의 /, "의 ");
+    b.title = it.label; b.onclick = () => showPeek(it); pick.appendChild(b);
+  }
+  $("#peek").hidden = false;
+  showPeek(list[0]);
+}
+async function showPeek(it, keepScale) {
+  PK.n = it.n; $("#pkTitle").textContent = it.label || (it.n + "쪽"); $("#pkTitle").title = $("#pkTitle").textContent;
+  $("#pkPick").querySelectorAll(".tb").forEach(b => b.classList.toggle("on", b.title === it.label));
+  const page = await S.pdf.getPage(it.n), v1 = page.getViewport({ scale: 1 }), body = $("#pkBody");
+  if (!keepScale || !PK.scale) PK.scale = Math.max(0.2, Math.min((body.clientWidth - 24) / v1.width, (body.clientHeight - 24) / v1.height));  // 화면에 맞춤
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.5), vp = page.getViewport({ scale: PK.scale * dpr }), cv = $("#pkCanvas");
+  cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height); cv.style.width = (vp.width / dpr) + "px"; cv.style.height = (vp.height / dpr) + "px";
+  $("#pkNo").textContent = it.n + " / " + S.pages.length;
+  try { await page.render({ canvasContext: cv.getContext("2d"), viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE }).promise; } catch (e) { /* 다시 그리기로 바뀜 */ }
+}
+function peekStep(d) { const n = Math.min(Math.max(1, PK.n + d), S.pages.length); if (n !== PK.n) showPeek({ n, label: n + "쪽" }, true); }
+$("#pkPrev").onclick = () => peekStep(-1);
+$("#pkNext").onclick = () => peekStep(1);
+$("#pkIn").onclick = () => { PK.scale *= 1.25; showPeek({ n: PK.n, label: $("#pkTitle").textContent }, true); };
+$("#pkOut").onclick = () => { PK.scale /= 1.25; showPeek({ n: PK.n, label: $("#pkTitle").textContent }, true); };
+$("#pkGo").onclick = () => { const n = PK.n; $("#peek").hidden = true; scrollToPage(n); };
+$("#pkClose").onclick = () => { $("#peek").hidden = true; };
+
 // ---------------- 펜(손가락은 넘기기, 펜은 그리기) ----------------
 function isPenEvent(e) { return e.pointerType === "pen" || (e.pointerType === "mouse" && S.tool); }
 function hookInk(pg) {
@@ -264,6 +416,13 @@ function hookInk(pg) {
     stroke = null;
   };
   c.addEventListener("pointerup", end); c.addEventListener("pointercancel", end);
+  // 증거번호 누르기: 손가락 짧게 누름, 또는 도구가 꺼진 마우스 클릭(S펜 그리기와 겹치지 않게)
+  let tap = null;
+  c.addEventListener("pointerdown", e => { tap = (e.pointerType === "touch" || (e.pointerType === "mouse" && !S.tool)) ? { x: e.clientX, y: e.clientY, t: Date.now() } : null; }, true);
+  c.addEventListener("pointerup", e => {
+    if (!tap || Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 10 || Date.now() - tap.t > 500) { tap = null; return; }
+    tap = null; const h = hotAt(pg, e); if (h) { e.stopPropagation(); swipe = null; openPeek(h); }
+  });
 }
 function toPdf(pg, e) {
   const r = pg.ink.getBoundingClientRect(), x = (e.clientX - r.left) * (pg.vp.width / r.width), y = (e.clientY - r.top) * (pg.vp.height / r.height);
