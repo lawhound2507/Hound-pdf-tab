@@ -2,7 +2,7 @@
 // pdf.js 3.11.174로 보기, pdf-lib로 저장(PDF 표준 Ink 주석 + 모양 그림을 함께 넣어 PC 하운드 PDF, 다른 PDF 프로그램에서도 같게 보임).
 // 사건 PDF는 이 탭 안에서만(바깥으로 보내지 않음, 기록 남기지 않음). 최근 파일은 이 탭 브라우저 저장소(IndexedDB)에만, [목록 비우기]로 지움.
 "use strict";
-const APP_VER = 11;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
+const APP_VER = 12;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
 pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 const $ = s => document.querySelector(s);
 const S = { pdf: null, bytes: null, name: "", handle: null, scale: 1, fit: true, pages: [], strokes: {}, undo: [],
@@ -116,6 +116,13 @@ function fitScale() {  // 높이 맞춤(PC 하운드 PDF와 같게, 2026-10-30 �
   const s = Math.min((view.clientWidth - 36 - 10 * (k - 1)) / (k * w0), (view.clientHeight - 20) / h0);
   return Math.max(0.3, s);
 }
+// 쪽마다 배율(2026-11-02 팀장님 "태블릿용도 고쳐야해"): 맞춤이면 쪽마다 자기 크기로 칸(두 쪽이면 화면 반)과 화면 높이에 맞게.
+// 예전엔 배율 하나라 크기가 다른 쪽(큰 사진 등)이 확대돼 잘렸음. 확대, 축소하면 이 비율 그대로
+const ps = pg => S.scale * (pg.k || 1);
+function fitK() {
+  const view = $("#view"), n = S.two && S.pages.length > 1 ? 2 : 1, colW = (view.clientWidth - 36 - 10 * (n - 1)) / n, H = view.clientHeight - 20;
+  S.pages.forEach(pg => { const v = pg.page.getViewport({ scale: 1 }); pg.k = Math.max(0.02, Math.min(colW / v.width, H / v.height)) / (S.scale || 1); });
+}
 function setTwo(on, user = true) {
   if (user) setPref("two", on);
   if (S.two === on) return drawViewBtns();
@@ -195,8 +202,8 @@ async function layout() {
     S.pages.push(pg); hookInk(pg);
   }
   arrange();
-  if (S.fit) S.scale = fitScale();
-  S.pages.forEach(pg => { pg.vp = pg.page.getViewport({ scale: S.scale }); pg.el.style.width = pg.vp.width + "px"; pg.el.style.height = pg.vp.height + "px"; });
+  if (S.fit) { S.scale = fitScale(); fitK(); }
+  S.pages.forEach(pg => { pg.vp = pg.page.getViewport({ scale: ps(pg) }); pg.el.style.width = pg.vp.width + "px"; pg.el.style.height = pg.vp.height + "px"; });
   $("#pgN").textContent = S.pdf.numPages;
   observe();
 }
@@ -218,8 +225,8 @@ async function paint(h, page, cv, vp, sized) {
   try { await t.promise; return h.paintSeq === my; } catch (e) { return false; } finally { if (h.paintTask === t) h.paintTask = null; }
 }
 async function renderPage(pg) {
-  if (pg.done === S.scale) return; pg.done = S.scale;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2.5), vp = pg.page.getViewport({ scale: S.scale * dpr });
+  if (pg.done === ps(pg)) return; pg.done = ps(pg);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.5), vp = pg.page.getViewport({ scale: ps(pg) * dpr });
   const ok = await paint(pg, pg.page, pg.cv, vp, () => { pg.ink.width = pg.cv.width; pg.ink.height = pg.cv.height; pg.dpr = dpr; });
   if (!ok) return;  // 더 새 그리기가 이어받음
   drawInk(pg);
@@ -228,7 +235,8 @@ async function renderPage(pg) {
 function setScale(s, keepFit = false) {
   const view = $("#view"), cur = S.cur, rel = (view.scrollTop - (S.pages[cur - 1] ? S.pages[cur - 1].el.offsetTop : 0)) / (S.scale || 1);
   S.scale = Math.min(6, Math.max(0.3, s)); S.fit = keepFit;
-  S.pages.forEach(pg => { pg.vp = pg.page.getViewport({ scale: S.scale }); pg.el.style.width = pg.vp.width + "px"; pg.el.style.height = pg.vp.height + "px"; pg.done = 0; });
+  if (keepFit) fitK();
+  S.pages.forEach(pg => { pg.vp = pg.page.getViewport({ scale: ps(pg) }); pg.el.style.width = pg.vp.width + "px"; pg.el.style.height = pg.vp.height + "px"; pg.done = 0; });
   observe();
   if (S.paged) { markZoom(); return; }  // 쪽 넘김: 확대했을 때만 화면 이동
   if (S.pages[cur - 1]) view.scrollTop = S.pages[cur - 1].el.offsetTop + rel * S.scale;
@@ -584,14 +592,14 @@ function drawInk(pg) {
   const c = pg.ink, g = c.getContext("2d"), k = pg.dpr || 1;
   g.clearRect(0, 0, c.width, c.height);
   for (const s of S.strokes[pg.n] || []) {
-    const st = STYLE[s.tool]; g.save(); g.globalAlpha = st.op; g.strokeStyle = s.color; g.lineWidth = st.w * S.scale * k; g.lineCap = "round"; g.lineJoin = "round";
+    const st = STYLE[s.tool]; g.save(); g.globalAlpha = st.op; g.strokeStyle = s.color; g.lineWidth = st.w * ps(pg) * k; g.lineCap = "round"; g.lineJoin = "round";
     g.beginPath();
     s.pts.forEach((p, i) => { const [x, y] = pg.vp.convertToViewportPoint(p[0], p[1]); i ? g.lineTo(x * k, y * k) : g.moveTo(x * k, y * k); });
     g.stroke(); g.restore();
   }
 }
 function eraseAt(pg, pt) {
-  const list = S.strokes[pg.n] || [], tol = 8 / S.scale + 4;
+  const list = S.strokes[pg.n] || [], tol = 8 / ps(pg) + 4;
   const hit = list.filter(s => s.pts.some((p, i) => i && segDist(pt, s.pts[i - 1], p) < tol + STYLE[s.tool].w / 2));
   if (!hit.length) return;
   S.strokes[pg.n] = list.filter(s => !hit.includes(s)); S.undo.push({ del: hit, n: pg.n }); markDirty(); drawInk(pg);
