@@ -2,7 +2,7 @@
 // pdf.js 3.11.174로 보기, pdf-lib로 저장(PDF 표준 Ink 주석 + 모양 그림을 함께 넣어 PC 하운드 PDF, 다른 PDF 프로그램에서도 같게 보임).
 // 사건 PDF는 이 탭 안에서만(바깥으로 보내지 않음, 기록 남기지 않음). 최근 파일은 이 탭 브라우저 저장소(IndexedDB)에만, [목록 비우기]로 지움.
 "use strict";
-const APP_VER = 12;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
+const APP_VER = 13;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
 pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 const $ = s => document.querySelector(s);
 const S = { pdf: null, bytes: null, name: "", handle: null, scale: 1, fit: true, pages: [], strokes: {}, undo: [],
@@ -14,10 +14,24 @@ function toast(t, ms = 2500) { const e = $("#toast"); e.textContent = t; e.class
 
 // ---------------- 최근 파일(이 탭 안 IndexedDB만) ----------------
 function idb() {
-  return new Promise((ok, no) => { const r = indexedDB.open("houndpdf-tab", 1);
-    r.onupgradeneeded = () => r.result.createObjectStore("files", { keyPath: "key" }); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
+  return new Promise((ok, no) => { const r = indexedDB.open("houndpdf-tab", 2);
+    r.onupgradeneeded = () => { const d = r.result;
+      if (!d.objectStoreNames.contains("files")) d.createObjectStore("files", { keyPath: "key" });
+      if (!d.objectStoreNames.contains("backups")) d.createObjectStore("backups", { keyPath: "key" }); };  // 덮기 전 옛 판(판 13)
+    r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
 }
-async function dbDo(mode, fn) { const db = await idb(); return new Promise((ok, no) => { const tx = db.transaction("files", mode); const st = tx.objectStore("files"); const r = fn(st); tx.oncomplete = () => ok(r && r.result); tx.onerror = () => no(tx.error); }); }
+async function dbDo(mode, fn, store = "files") { const db = await idb(); return new Promise((ok, no) => { const tx = db.transaction(store, mode); const st = tx.objectStore(store); const r = fn(st); tx.oncomplete = () => ok(r && r.result); tx.onerror = () => no(tx.error); }); }
+// [저장]으로 원래 파일을 덮기 전 그 파일의 지금 내용을 이 탭 안에 옛 판으로(파일마다 최근 3개, 점검 2026-11-06). 못 하면 덮지 않음
+const KEEP_OLD = 3;
+async function backupBeforeOverwrite(handle, name) {
+  const f = await handle.getFile();
+  const bytes = await f.arrayBuffer();
+  const at = Date.now();
+  await dbDo("readwrite", st => st.put({ key: name + "|" + at, name, at, size: bytes.byteLength, bytes }), "backups");
+  const all = ((await dbDo("readonly", st => st.getAll(), "backups")) || []).filter(x => x.name === name).sort((a, b) => b.at - a.at);
+  for (const x of all.slice(KEEP_OLD)) await dbDo("readwrite", st => st.delete(x.key), "backups");
+  return at;
+}
 async function recentList() { try { return ((await dbDo("readonly", st => st.getAll())) || []).sort((a, b) => b.at - a.at); } catch (e) { return []; } }
 async function recentPut(rec) {
   try { await dbDo("readwrite", st => st.put(rec));
@@ -711,7 +725,9 @@ async function save(asNew) {
   const blob = new Blob([out], { type: "application/pdf" });
   let how = "down";
   if (!asNew && S.handle && S.handle.createWritable) {  // 덮어쓰기가 되는 브라우저
-    try { const w = await S.handle.createWritable(); await w.write(blob); await w.close(); how = "over"; } catch (e) { how = "down"; }
+    let backed = false;
+    try { await backupBeforeOverwrite(S.handle, S.name); backed = true; } catch (e) { backed = false; }
+    if (backed) { try { const w = await S.handle.createWritable(); await w.write(blob); await w.close(); how = "over"; } catch (e) { how = "down"; } }
   } else if (asNew && window.showSaveFilePicker) {
     try { const h = await showSaveFilePicker({ suggestedName: name, types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }] });
       const w = await h.createWritable(); await w.write(blob); await w.close(); how = "new"; S.handle = h; } catch (e) { if (e.name === "AbortError") return; how = "down"; }
@@ -720,7 +736,7 @@ async function save(asNew) {
   window.__lastSaved = out;  // 시험용(바깥으로 보내지 않음)
   const page = S.cur; S.dirty = false;
   await openBytes(out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength), name, how === "down" ? null : S.handle, page);
-  toast(how === "over" ? "저장했습니다(원래 파일에 덮어씀)" : how === "new" ? "새 파일로 저장했습니다" : `'${name}'로 내려받았습니다(다운로드 폴더)`, 4000);
+  toast(how === "over" ? "저장했습니다(원래 파일에 덮어씀, 덮기 전 판은 이 탭에 남김)" : how === "new" ? "새 파일로 저장했습니다" : `'${name}'로 내려받았습니다(다운로드 폴더)`, 4000);
 }
 $("#bSave").onclick = () => save(false);
 $("#bSaveAs").onclick = () => save(true);
