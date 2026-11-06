@@ -2,7 +2,7 @@
 // pdf.js 3.11.174로 보기, pdf-lib로 저장(PDF 표준 Ink 주석 + 모양 그림을 함께 넣어 PC 하운드 PDF, 다른 PDF 프로그램에서도 같게 보임).
 // 사건 PDF는 이 탭 안에서만(바깥으로 보내지 않음, 기록 남기지 않음). 최근 파일은 이 탭 브라우저 저장소(IndexedDB)에만, [목록 비우기]로 지움.
 "use strict";
-const APP_VER = 13;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면과 [보기] 창 아래에 '판 N'
+const APP_VER = 14;  // 화면에 보이는 판 번호(sw.js VERSION houndpdf-tab-N과 같이 올림). 처음 화면 맨 아래에만 '판 N'(2026-11-06 시안 5)
 pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 const $ = s => document.querySelector(s);
 const S = { pdf: null, bytes: null, name: "", handle: null, scale: 1, fit: true, pages: [], strokes: {}, undo: [],
@@ -158,9 +158,7 @@ const ICON = {  // 가는 선 그림(글자 대신, 자리를 적게)
   scroll: '<svg viewBox="0 0 24 24"><rect x="5" y="2" width="11" height="9" rx="1"/><rect x="5" y="13" width="11" height="9" rx="1"/><path d="M19.5 8v8M17.5 14l2 2 2-2"/></svg>'
 };
 function drawViewBtns() {
-  const two = $("#bTwoT"), pg = $("#bPagedT");
-  if (two) { two.innerHTML = S.two ? ICON.two : ICON.one; two.title = two.dataset.tip = S.two ? "지금 두 쪽 보기 (누르면 한 쪽)" : "지금 한 쪽 보기 (누르면 두 쪽)"; }
-  if (pg) { pg.innerHTML = S.paged ? ICON.paged : ICON.scroll; pg.title = pg.dataset.tip = S.paged ? "지금 쪽 넘김 (누르면 스크롤)" : "지금 스크롤 (누르면 쪽 넘김)"; }
+  $("#bView").textContent = "보기: " + (S.two ? "두 쪽" : "한 쪽");  // 그림 단추 둘을 빼고 [보기] 하나에 지금 보기(2026-11-06 시안 5)
   $("#bPaged").classList.toggle("on", S.paged); $("#bScroll").classList.toggle("on", !S.paged);
   $("#bOne").classList.toggle("on", !S.two); $("#bTwo").classList.toggle("on", S.two);
   $("#bCover").hidden = !S.two; $("#bCover").classList.toggle("on", S.cover);
@@ -661,11 +659,9 @@ $("#view").addEventListener("touchend", e => {
 $("#bZoomIn").onclick = () => setScale(S.scale * 1.25);
 $("#bZoomOut").onclick = () => setScale(S.scale / 1.25);
 $("#bFit").onclick = fitWidth;
-$("#bTwoT").onclick = () => setTwo(!S.two);
-$("#bPagedT").onclick = () => setPaged(!S.paged);
 // 길게 누르면 이름 풍선(터치에서는 title이 안 보여서)
 document.querySelectorAll(".ib").forEach(b => { let t; b.addEventListener("pointerdown", () => { t = setTimeout(() => toast(b.dataset.tip || b.title), 500); }); ["pointerup", "pointerleave", "pointercancel"].forEach(k => b.addEventListener(k, () => clearTimeout(t))); });
-// [보기]: 쪽 보기, 첫 쪽 따로, 넘기기를 작은 창 하나에(단추 줄이 탭 가로 화면을 넘지 않게). 바깥을 누르면 닫힘
+// [보기]: 보기, 첫 쪽 따로, 넘기기를 작은 창 하나에(단추 줄이 탭 가로 화면을 넘지 않게). 바깥을 누르면 닫힘
 $("#bView").onclick = e => {
   const p = $("#viewPop"), r = e.currentTarget.getBoundingClientRect();
   if (!p.hidden) { p.hidden = true; return; }
