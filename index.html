@@ -25,8 +25,7 @@
     <button class="tb" id="bUndo" title="되돌리기">되돌리기</button>
   </span>
   <span class="grow"></span>
-  <button class="tb ib" id="bTwoT" aria-label="한 쪽, 두 쪽 바꾸기"></button><button class="tb ib" id="bPagedT" aria-label="쪽 넘김, 스크롤 바꾸기"></button>
-  <button class="tb" id="bView" title="쪽 보기, 넘기기">보기</button>
+  <button class="tb" id="bView" title="보기, 넘기기">보기</button>
   <span class="pg"><input id="pgNo" inputmode="numeric" aria-label="쪽 번호"> / <span id="pgN">0</span></span>
   <button class="tb" id="bZoomOut" title="축소">−</button>
   <button class="tb" id="bZoomIn" title="확대">+</button>
@@ -35,10 +34,9 @@
   <button class="tb" id="bSaveAs">다른 이름</button>
 </header>
 <div id="viewPop" class="pop" hidden>
-    <span class="seg" title="쪽 보기"><button class="tb" id="bOne">한 쪽</button><button class="tb" id="bTwo">두 쪽</button></span>
-    <button class="tb" id="bCover" title="두 쪽 보기에서 첫 쪽(표지)만 따로">첫 쪽 따로</button>
-    <span class="seg" title="넘기기"><button class="tb" id="bPaged">쪽 넘김</button><button class="tb" id="bScroll">스크롤</button></span>
-<div class="ver" id="verPop"></div>
+    <div class="prow"><span class="pn">보기</span><span class="seg"><button class="tb" id="bOne">한 쪽</button><button class="tb" id="bTwo">두 쪽</button></span>
+      <button class="tb" id="bCover" title="두 쪽 보기에서 첫 쪽(표지)만 따로">첫 쪽 따로</button></div>
+    <div class="prow"><span class="pn">넘기기</span><span class="seg"><button class="tb" id="bScroll">스크롤</button><button class="tb" id="bPaged">쪽 넘김</button></span></div>
 </div>
 <div id="main">
   <aside id="side">

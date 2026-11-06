@@ -49,6 +49,8 @@ body.drawing .page canvas.ink { cursor: crosshair; }
 #toast.show { opacity: 1; }
 .pop { position: fixed; z-index: 20; background: #fff; border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 4px 14px rgba(0, 0, 0, .15); padding: 8px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .pop[hidden] { display: none; }
+.prow { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.prow .pn { width: 52px; color: var(--muted); }
 .ver { color: var(--muted); font-size: 12px; }
 .homebox .ver { margin-top: 10px; }
 @media (max-width: 900px) { #bar { flex-wrap: wrap; overflow: visible; row-gap: 6px; } #bar .grow { display: none; } .title { flex: 1; max-width: none; } .tools { order: 9; flex-wrap: wrap; } #side { position: absolute; z-index: 5; height: 100%; width: min(320px, 80vw); box-shadow: 2px 0 8px rgba(0, 0, 0, .15); } .tb { padding: 8px 9px; } }
